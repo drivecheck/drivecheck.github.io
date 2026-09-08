@@ -1,0 +1,14 @@
+{
+  "password": "test-pass-12",
+  "plaintext_utf8": "{\"make\":\"Octavia\"}",
+  "ciphertext_b64": "8o3SHsthzGWOCJkXzgm3TFCTyBme8FJA6P7PokA6S3wHlQ==",
+  "meta": {
+    "v": 1,
+    "kdf": "argon2id",
+    "m": 32768,
+    "t": 3,
+    "p": 1,
+    "salt_b64": "AAECAwQFBgcICQoLDA0ODw==",
+    "nonce_b64": "AAECAwQFBgcICQoL"
+  }
+}

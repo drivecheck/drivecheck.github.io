@@ -1,0 +1,28 @@
+{
+  "name": "@drivecheck/public",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@drivecheck/pricing": "workspace:*",
+    "@drivecheck/shared": "workspace:*",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/sql.js": "^1.4.9",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^7.1.0",
+    "vitest": "^4.1.10"
+  }
+}

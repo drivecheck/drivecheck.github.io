@@ -1,0 +1,172 @@
+name: pages-snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      crawl:
+        description: Restore snapshot, run one seed pass, re-export
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 */6 * * *"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    if: github.event_name == 'schedule' || inputs.crawl
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: drivecheck
+          POSTGRES_PASSWORD: drivecheck
+          POSTGRES_DB: drivecheck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U drivecheck -d drivecheck"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://drivecheck:drivecheck@localhost:5432/drivecheck
+      REDIS_URL: redis://localhost:6379/0
+      SNAPSHOT_PASSWORD: ${{ secrets.SNAPSHOT_PASSWORD }}
+      THUMBS_ENABLED: "false"
+      THUMBS_ON_DISCOVER: "false"
+      PROBE_IN_SEED_LOOP: "false"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Require password secret
+        run: test -n "$SNAPSHOT_PASSWORD"
+      - name: Install crawler and psql
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          pip install -e "./apps/crawler"
+      - name: Init schema
+        run: |
+          shopt -s nullglob
+          for f in db/init/*.sql; do
+            psql "$DATABASE_URL" -f "$f"
+          done
+      - name: Restore previous snapshot if present
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/snap
+          gh release download snapshot \
+            --pattern 'snapshot.bin' \
+            --pattern 'snapshot.meta.json' \
+            --dir /tmp/snap \
+            --clobber || true
+          if [ -f /tmp/snap/snapshot.bin ] && [ -f /tmp/snap/snapshot.meta.json ]; then
+            python -m drivecheck_crawler snapshot-restore \
+              --cipher /tmp/snap/snapshot.bin \
+              --meta /tmp/snap/snapshot.meta.json \
+              --sqlite /tmp/listings-restore.sqlite
+          fi
+      - name: Seed one polite pass
+        run: python -m drivecheck_crawler seed --source all
+      - name: Export encrypted snapshot
+        run: |
+          mkdir -p apps/public/public
+          python -m drivecheck_crawler snapshot-export \
+            --sqlite /tmp/listings.sqlite \
+            --cipher apps/public/public/snapshot.bin \
+            --meta apps/public/public/snapshot.meta.json
+      - name: Guard against empty dump
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          meta = json.loads(Path("apps/public/public/snapshot.meta.json").read_text())
+          n = int(meta.get("listings_active") or 0)
+          if n < 10_000:
+              raise SystemExit(f"refusing to publish tiny snapshot active={n}")
+          print("snapshot ok", n)
+          PY
+      - name: Publish snapshot release
+        run: |
+          if gh release view snapshot >/dev/null 2>&1; then
+            gh release upload snapshot \
+              apps/public/public/snapshot.bin \
+              apps/public/public/snapshot.meta.json \
+              --clobber
+          else
+            gh release create snapshot \
+              apps/public/public/snapshot.bin \
+              apps/public/public/snapshot.meta.json \
+              --title "Market snapshot" \
+              --notes "Encrypted listings dump for Pages."
+          fi
+
+  deploy:
+    needs: crawl
+    if: always() && (needs.crawl.result == 'success' || needs.crawl.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Download encrypted snapshot
+        run: |
+          mkdir -p apps/public/public /tmp/snap
+          gh release download snapshot \
+            --pattern 'snapshot.bin' \
+            --pattern 'snapshot.meta.json' \
+            --dir /tmp/snap \
+            --clobber
+          cp /tmp/snap/snapshot.bin apps/public/public/snapshot.bin
+          cp /tmp/snap/snapshot.meta.json apps/public/public/snapshot.meta.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          meta = json.loads(Path("apps/public/public/snapshot.meta.json").read_text())
+          n = int(meta.get("listings_active") or 0)
+          if n < 10_000:
+              raise SystemExit(f"refusing to deploy tiny snapshot active={n}")
+          print("snapshot ok", n)
+          PY
+      - name: Build SPA
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @drivecheck/public build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/public/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

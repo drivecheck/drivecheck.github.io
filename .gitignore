@@ -1,0 +1,14 @@
+.env
+.env.local
+node_modules
+dist
+*.sqlite
+__pycache__
+*.egg-info
+.venv
+.pytest_cache
+.DS_Store
+apps/public/public/snapshot.bin
+apps/public/public/snapshot.meta.json
+apps/public/.local-password
+apps/crawler/data

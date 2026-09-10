@@ -147,7 +147,6 @@ _STRONG_PARTS: list[tuple[str, re.Pattern[str]]] = [
             r"katalyzator|vyfuk|chladic|kompresor)\b"
             r"|\bmotor\s+na\s+"
             r"|\bprevodovk[ay]\s+na\s+"
-            r"|\bmotor\s+(?:1[.,]\d|2[.,]\d|tdi|tsi|hdi|dci|cdi)\b"
             r")"
         ),
     ),
@@ -194,6 +193,33 @@ _STRONG_PARTS: list[tuple[str, re.Pattern[str]]] = [
     ),
 ]
 
+# Title *is* a part/accessory ad (Bazos often omits "prodám"). Match title only.
+_TITLE_LEAD_PARTS = re.compile(
+    r"^(?:(?:prodam|prodavam|nabizim|prodej)\s+)?"
+    r"(?:kompletni\s+|origo\s+|originalni\s+|nove\s+)?"
+    r"(?:sada\s+|sad[ayu]\s+)?"
+    r"(?:"
+    r"alu\s*kola|lita\s*kola|zimni\s+kola|letni\s+kola|"
+    r"(?:zimni|letni)\s+alu\s*kola|"
+    r"zimni\s+pneu|letni\s+pneu|\bpneu\b|pneumatik|"
+    r"disky|disku|rafky|felny|"
+    r"kola\s+\d{2}|"
+    r"vin\s*(?:tabulk|stitek|plate|znacka)|"
+    r"vyrobni\s+stitek|"
+    r"tazne\s+zarizeni|"
+    r"stresni\s+(?:box|nosic)|"
+    r"autokamera|autoradio|"
+    r"koberec|"
+    r"nosic\s+kol|"
+    r"plachta\s+na\s+auto|"
+    r"ramecek\s+spz|spz\s+ramecek|"
+    r"celni\s+sklo|bocni\s+sklo|"
+    r"katalyzator|alternator|starter|"
+    r"airbag|"
+    r"ridici\s+jednotk"
+    r")"
+)
+
 # Weaker title cues — only reject with low price or without vehicle-sale cues.
 _WEAK_PARTS = re.compile(
     r"(?:"
@@ -207,9 +233,13 @@ _WEAK_PARTS = re.compile(
     r"|\bzrcatk"
     r"|\bsvetlomet"
     r"|\bblatnik"
-    r"|\bturbo\b"
     r"|\bpoloos"
     r"|\bnaprav[ay]\b"
+    r"|\balu\s*kola\b"
+    r"|\blita\s*kola\b"
+    r"|\bdisky\b"
+    r"|\brafky\b"
+    r"|\bfelny\b"
     r")"
 )
 
@@ -223,11 +253,19 @@ _WEAK_IN_SERVICE = re.compile(
     r")"
 )
 
+# These tokens also appear as car equipment — never reject on title alone
+# at a passenger-car asking price (need low price as supporting signal).
+_WEAK_EQUIPMENT_TOKEN = re.compile(
+    r"^(?:alu\s*kola|lita\s*kola|disky|rafky|felny)$"
+)
 
-def _has_strong_parts(folded_headline: str) -> str | None:
+
+def _has_strong_parts(folded_headline: str, folded_title: str) -> str | None:
     for reason, pattern in _STRONG_PARTS:
         if pattern.search(folded_headline):
             return reason
+    if _TITLE_LEAD_PARTS.search(folded_title.strip()):
+        return "parts_title_lead"
     return None
 
 
@@ -258,7 +296,7 @@ def should_reject_as_parts(
     folded_headline = _fold(headline)
     folded_title = _fold(title or "")
 
-    strong = _has_strong_parts(folded_headline)
+    strong = _has_strong_parts(folded_headline, folded_title)
     if strong:
         return PartsReject(reason=strong)
 
@@ -283,6 +321,8 @@ def should_reject_as_parts(
         if price_czk is not None and price_czk < _LOW_PARTS_PRICE_CZK:
             return PartsReject(reason=f"weak_parts_low_price:{weak_hit.group(0)}")
         if not _looks_like_vehicle_sale(folded_title, price_czk):
+            if _WEAK_EQUIPMENT_TOKEN.match(weak_hit.group(0)):
+                return None
             return PartsReject(reason=f"weak_parts_title:{weak_hit.group(0)}")
 
     return None

@@ -8,10 +8,10 @@ from urllib.parse import quote, urljoin
 from bs4 import BeautifulSoup
 
 from drivecheck_crawler.adapters.bazos import BAZOS_BASE, BRAND_LABELS
-from drivecheck_crawler.adapters.bazos_parts_filter import should_reject_as_parts
 from drivecheck_crawler.adapters.sauto import CATEGORY_OSOBNI, SAUTO_REFERER, SAUTO_SEARCH, _first_image_url
 from drivecheck_crawler.config import get_config
 from drivecheck_crawler.http_client import RateLimitedClient
+from drivecheck_crawler.listing_quality import should_reject_listing
 from drivecheck_crawler.normalize import (
     cb_name,
     map_seller_type,
@@ -325,7 +325,7 @@ def search_bazos(
         if price is None:
             continue
         detail_url = urljoin(BAZOS_BASE, href).split("?")[0]
-        parts_reject = should_reject_as_parts(title, None, price, url=detail_url)
+        parts_reject = should_reject_listing(title=title, price_czk=price, url=detail_url)
         if parts_reject is not None:
             log.debug(
                 "bazos live skip parts id=%s reason=%s title=%r",

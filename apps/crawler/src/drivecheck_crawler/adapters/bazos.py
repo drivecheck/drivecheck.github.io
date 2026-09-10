@@ -9,10 +9,10 @@ from bs4 import BeautifulSoup
 
 from drivecheck_crawler.adapters.base import SourceAdapter
 from drivecheck_crawler.adapters.bazos_extract import clean_region, extract_fields
-from drivecheck_crawler.adapters.bazos_parts_filter import should_reject_as_parts
 from drivecheck_crawler.config import CrawlerConfig
 from drivecheck_crawler.cursors import CrawlCursorStore
 from drivecheck_crawler.http_client import RateLimitedClient
+from drivecheck_crawler.listing_quality import should_reject_listing
 from drivecheck_crawler.models import ListingDTO
 from drivecheck_crawler.normalize import (
     extract_features_from_text,
@@ -180,19 +180,26 @@ class BazosAdapter(SourceAdapter):
         if price is None:
             return None
 
-        parts_reject = should_reject_as_parts(title, popis, price, url=url)
-        if parts_reject is not None:
+        fields = extract_fields(page_text)
+
+        quality = should_reject_listing(
+            title=title,
+            popis=popis,
+            price_czk=price,
+            year=fields.year,
+            mileage_km=fields.mileage_km,
+            url=url,
+        )
+        if quality is not None:
             logger.info(
-                "bazos skip parts listing id=%s reason=%s title=%r price=%s",
+                "bazos skip listing id=%s reason=%s title=%r price=%s",
                 external_id,
-                parts_reject.reason,
+                quality.reason,
                 (title or "")[:120],
                 price,
             )
             self._soft_hide_parts_listing(external_id)
             return None
-
-        fields = extract_fields(page_text)
 
         # Region from title suffix " - Mělník" or Lokalita table row (name only, no PII).
         region = None

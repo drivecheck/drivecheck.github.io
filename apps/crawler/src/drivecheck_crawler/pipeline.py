@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from drivecheck_crawler.accident import should_skip_accident_listing
 from drivecheck_crawler.config import CrawlerConfig, get_config
+from drivecheck_crawler.listing_quality import should_reject_listing
 from drivecheck_crawler.cursors import CrawlCursorStore
 from drivecheck_crawler.health import CrawlHealthStore
 from drivecheck_crawler.http_client import RateLimitedClient
@@ -47,6 +48,7 @@ def run_seed(
     ingested["errors"] = 0
     ingested["thumbs"] = 0
     ingested["skipped_accident"] = 0
+    ingested["skipped_quality"] = 0
 
     if config.thumbs_enabled:
         try:
@@ -106,6 +108,33 @@ def run_seed(
                             (dto.title or "")[:80],
                         )
                         continue
+                    quality = should_reject_listing(
+                        title=getattr(dto, "title", None),
+                        price_czk=getattr(dto, "price_czk", None),
+                        year=getattr(dto, "year", None),
+                        mileage_km=getattr(dto, "mileage_km", None),
+                    )
+                    if quality is not None:
+                        ingested["skipped_quality"] += 1
+                        logger.info(
+                            "Skip non-car/lease source=%s id=%s reason=%s title=%s",
+                            adapter.source,
+                            dto.external_id,
+                            quality.reason,
+                            (getattr(dto, "title", None) or "")[:80],
+                        )
+                        try:
+                            repo.mark_listings_removed(
+                                adapter.source, [str(dto.external_id)]
+                            )
+                        except Exception:
+                            logger.debug(
+                                "Could not soft-hide rejected listing source=%s id=%s",
+                                adapter.source,
+                                dto.external_id,
+                                exc_info=True,
+                            )
+                        continue
                     try:
                         repo.upsert_listing(dto)
                         ingested[adapter.source] = ingested.get(adapter.source, 0) + 1
@@ -154,7 +183,7 @@ def run_seed(
     listings_ingested = sum(
         v
         for k, v in ingested.items()
-        if k not in ("errors", "thumbs", "skipped_accident")
+        if k not in ("errors", "thumbs", "skipped_accident", "skipped_quality")
     )
     if listings_ingested > 0:
         aggregate_count = record_daily_market_aggregates(

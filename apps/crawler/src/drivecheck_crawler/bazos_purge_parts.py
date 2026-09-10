@@ -1,11 +1,11 @@
-"""Soft-hide existing Bazos parts rows (status=removed). Never DELETE/TRUNCATE."""
+"""Soft-hide existing Bazos parts/leasing rows (status=removed). Never DELETE/TRUNCATE."""
 
 from __future__ import annotations
 
 import logging
 
-from drivecheck_crawler.adapters.bazos_parts_filter import should_reject_as_parts
 from drivecheck_crawler.config import CrawlerConfig, get_config
+from drivecheck_crawler.listing_quality import should_reject_listing
 from drivecheck_crawler.repository import ListingRepository
 
 logger = logging.getLogger(__name__)
@@ -26,10 +26,9 @@ def run_bazos_purge_parts(
         title = row.get("title")
         price = row.get("price_czk")
         url = row.get("url")
-        reject = should_reject_as_parts(
-            title if isinstance(title, str) else None,
-            None,
-            int(price) if isinstance(price, int) else None,
+        reject = should_reject_listing(
+            title=title if isinstance(title, str) else None,
+            price_czk=int(price) if isinstance(price, int) else None,
             url=url if isinstance(url, str) else None,
         )
         if reject is None:

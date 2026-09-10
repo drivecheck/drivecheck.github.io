@@ -167,6 +167,85 @@ def test_is_likely_vehicle_listing_mirrors_reject():
     assert is_likely_vehicle_listing("Škoda Superb 2.0 TDI 140 kW", None, 320_000) is True
 
 
+def test_reject_alu_kola_without_prodam_prefix():
+    assert _reject_reason("ALU kola Škoda Octavia 16\"", price=8_000)
+    assert _reject_reason("Litá kola 18 Golf 7", price=12_000)
+    assert _reject_reason("Zimní kola BMW 17", price=9_500)
+
+
+def test_reject_tires_without_prodam_prefix():
+    assert _reject_reason("Zimní pneu Octavia 205/55", price=4_000)
+    assert _reject_reason("Letní pneumatiky 16 Fabia", price=2_500)
+    assert _reject_reason("Ráfky 17 VW Passat", price=3_000)
+    assert _reject_reason("Felny 16 Škoda", price=1_800)
+
+
+def test_reject_vin_plate_and_accessories():
+    assert _reject_reason("VIN tabulka Octavia 3 originál", price=500)
+    assert _reject_reason("Výrobní štítek Fabia", price=300)
+    assert _reject_reason("Tažné zařízení Octavia 3", price=4_500)
+    assert _reject_reason("Střešní box Thule", price=6_000)
+    assert _reject_reason("Autokamera 70mai", price=1_200)
+    assert _reject_reason("Koberečky Golf 7", price=800)
+    assert _reject_reason("Nosič kol na tažné", price=2_000)
+    assert _reject_reason("Rámeček SPZ originál Škoda", price=200)
+
+
+def test_reject_glass_and_major_units_without_prodam():
+    assert _reject_reason("Čelní sklo Octavia 3", price=3_500)
+    assert _reject_reason("Katalyzátor Golf 4", price=2_200)
+    assert _reject_reason("Alternátor 1.9 TDI", price=1_800)
+    assert _reject_reason("Startér Fabia 1.2", price=900)
+    assert _reject_reason("Airbag řidiče Golf 6", price=1_500)
+
+
+def test_keep_car_with_alu_kola_as_equipment():
+    title = "Škoda Octavia 2.0 TDI 110 kW Combi"
+    popis = "Najeto 185 000 km, alu kola, serviska."
+    assert _reject_reason(title, popis, 289_000) is None
+
+
+def test_keep_car_with_new_tires_service_language():
+    title = "VW Golf 7 1.4 TSI 92 kW"
+    popis = "Nové zimní pneu 2024, STK do 2027."
+    assert _reject_reason(title, popis, 245_000) is None
+
+
+def test_keep_car_with_tazne_as_equipment():
+    assert _reject_reason("Tesla Model Y Long Range AWD 93% Záruka Tažné", price=890_000) is None
+    assert _reject_reason("BMW X2 sDrive 1.8i Automat Tažné", price=450_000) is None
+    assert _reject_reason("Kia Sportage III 2.0 CRDI Ser.historie Tažné NAVI", price=189_000) is None
+
+
+def test_keep_cheap_car_with_lz_pneu_equipment():
+    """Winter/summer tires on a cheap whole car must not look like a tire ad."""
+    assert _reject_reason("Alfa Romeo 147, 1.6i, 77kw L+Z pneu", price=18_000) is None
+
+
+def test_keep_car_alu_kola_as_equipment_without_year():
+    assert _reject_reason(
+        "OPEL MERIVA 1.4 i BENZÍN ALU KOLA KLIMA, VYHŘEV SEDADEL",
+        price=89_000,
+    ) is None
+
+
+def test_reject_alu_kola_when_price_is_parts_range():
+    assert _reject_reason(
+        'Originální Volvo V90 18" alu kola + Nokian Hakkapeliitta 9',
+        price=8_000,
+    )
+
+
+def test_keep_car_turbo_as_engine_name():
+    assert _reject_reason("Fiat Panda 0.9 TwinAir Turbo 4x4, 62,5 kW", price=139_484) is None
+    assert _reject_reason("Opel Cascada 1.4 turbo", price=205_000) is None
+    assert _reject_reason("Rs6 V8 Bi-turbo 550ps", price=1_190_000) is None
+
+
+def test_keep_car_motor_displacement_phrase():
+    assert _reject_reason("HYUNDAI i30 rok 2016, motor 1,6 DIESEL", price=99_000) is None
+
+
 # --- Adapter integration: parts detail must not become ListingDTO ---
 
 
@@ -234,6 +313,27 @@ def test_adapter_keeps_real_car_with_rozvody(monkeypatch):
     assert dto is not None
     assert dto.price_czk == 289_000
     assert dto.year == 2016
+
+
+LEASE_DETAIL_HTML = """
+<html><body>
+  <h1 class="nadpisdetail">Škoda Octavia 1.5 TSI operativní leasing</h1>
+  <div class="popisdetail">Předplatné, 8 900 Kč/měsíc, na splátky formou operáku.</div>
+  <table>
+    <tr><td>Lokalita:</td><td>100 00 Praha</td></tr>
+    <tr><td>Cena:</td><td>8 900 Kč</td></tr>
+  </table>
+</body></html>
+"""
+
+
+def test_adapter_skips_leasing_listing(monkeypatch):
+    adapter = BazosAdapter(_FakeClient(LEASE_DETAIL_HTML), _FakeConfig(), _FakeCursors())
+    monkeypatch.setattr(adapter, "_soft_hide_parts_listing", lambda _id: None)
+    dto = adapter._fetch_detail(
+        "https://auto.bazos.cz/inzerat/111222333/operak/", brand="skoda"
+    )
+    assert dto is None
 
 
 def test_table_value_still_works_after_filter_import():

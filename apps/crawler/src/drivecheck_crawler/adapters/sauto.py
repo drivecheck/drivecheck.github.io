@@ -10,6 +10,7 @@ from drivecheck_crawler.config import CrawlerConfig
 from drivecheck_crawler.cursors import CrawlCursorStore
 from drivecheck_crawler.features import normalize_feature_list
 from drivecheck_crawler.http_client import RateLimitedClient
+from drivecheck_crawler.listing_quality import should_reject_as_leasing
 from drivecheck_crawler.models import ListingDTO
 from drivecheck_crawler.normalize import (
     cb_name,
@@ -342,6 +343,10 @@ class SautoAdapter(SourceAdapter):
         # Search payload usually lacks VAT flags; detail enrich fills them.
         prices = resolve_sauto_prices(price=row.get("price"))
         if item_id is None or prices is None:
+            return None
+        if should_reject_as_leasing(
+            None, flags={"operating_lease": row.get("operating_lease")}
+        ):
             return None
 
         manufacturer = row.get("manufacturer_cb") or {}
